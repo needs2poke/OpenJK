@@ -126,6 +126,111 @@ typedef union sharedBuffer_u {
 } sharedBuffer_t;
 extern sharedBuffer_t gSharedBuffer;
 
+typedef struct {
+	int total;
+	int players;
+	int npcs;
+	int missiles;
+	int movers;
+	int items;
+	int bodies;
+	int fx;
+	int tempEntities;
+	int other;
+} entityCountDiag_t;
+
+typedef struct {
+	entityCountDiag_t current;
+	entityCountDiag_t peak;
+	int snapshotCurrent;
+	int snapshotPeak;
+	int lastBroadcastTime;
+} entityDiagnostics_t;
+
+typedef struct {
+	int total;
+	int players;
+	int npcs;
+	int missiles;
+	int movers;
+	int items;
+	int bodies;
+	int fx;
+	int tempEntities;
+	int other;
+} entityCountDiag_t;
+
+typedef struct {
+	entityCountDiag_t current;
+	entityCountDiag_t peak;
+	int snapshotCurrent;
+	int snapshotPeak;
+	int lastBroadcastTime;
+} entityDiagnostics_t;
+
+typedef struct {
+	int total;
+	int players;
+	int npcs;
+	int missiles;
+	int movers;
+	int items;
+	int bodies;
+	int fx;
+	int tempEntities;
+	int other;
+} entityCountDiag_t;
+
+typedef struct {
+	entityCountDiag_t current;
+	entityCountDiag_t peak;
+	int snapshotCurrent;
+	int snapshotPeak;
+	int lastBroadcastTime;
+} entityDiagnostics_t;
+
+typedef struct {
+	int total;
+	int players;
+	int npcs;
+	int missiles;
+	int movers;
+	int items;
+	int bodies;
+	int fx;
+	int tempEntities;
+	int other;
+} entityCountDiag_t;
+
+typedef struct {
+	entityCountDiag_t current;
+	entityCountDiag_t peak;
+	int snapshotCurrent;
+	int snapshotPeak;
+	int lastBroadcastTime;
+} entityDiagnostics_t;
+
+typedef struct {
+	int total;
+	int players;
+	int npcs;
+	int missiles;
+	int movers;
+	int items;
+	int bodies;
+	int fx;
+	int tempEntities;
+	int other;
+} entityCountDiag_t;
+
+typedef struct {
+	entityCountDiag_t current;
+	entityCountDiag_t peak;
+	int snapshotCurrent;
+	int snapshotPeak;
+	int lastBroadcastTime;
+} entityDiagnostics_t;
+
 // movers are things like doors, plats, buttons, etc
 typedef enum {
 	MOVER_POS1,
@@ -468,6 +573,17 @@ typedef struct clientSession_s {
 	int			siegeDesiredTeam;
 
 	char		IP[NET_ADDRSTRMAXLEN];
+
+	// Master Mod account system
+	qboolean	accountLoggedIn;
+	int			accountId;
+	char		accountUsername[32];
+	char		accountToken[512];
+	int			accountLevel;
+	int			accountExperience;
+	int			accountCredits;
+	float		accountAlignment;
+	char		accountRankTitle[32];
 } clientSession_t;
 
 // playerstate mGameFlags
@@ -888,6 +1004,8 @@ typedef struct level_locals_s {
 	int			framenum;
 	int			time;					// in msec
 	int			previousTime;			// so movers can back up when blocked
+
+	entityDiagnostics_t	entityDiagnostics;
 
 	int			startTime;				// level.time the map was started
 

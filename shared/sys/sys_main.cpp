@@ -603,6 +603,7 @@ void *Sys_LoadGameDll( const char *name, GetModuleAPIProc **moduleAPI )
 	char	filename[MAX_OSPATH];
 
 	Com_sprintf (filename, sizeof(filename), "%s" ARCH_STRING DLL_EXT, name);
+	Com_Printf( "Sys_LoadGameDll: Attempting to load %s\n", filename );
 
 #if defined(_DEBUG)
 	libHandle = Sys_LoadLibrary( filename );
@@ -664,11 +665,12 @@ void *Sys_LoadGameDll( const char *name, GetModuleAPIProc **moduleAPI )
 
 	*moduleAPI = (GetModuleAPIProc *)Sys_LoadFunction( libHandle, "GetModuleAPI" );
 	if ( !*moduleAPI ) {
-		Com_DPrintf ( "Sys_LoadGameDll(%s) failed to find GetModuleAPI function:\n...%s!\n", name, Sys_LibraryError() );
+		Com_Printf ( "Sys_LoadGameDll(%s) failed to find GetModuleAPI function:\n...%s!\n", name, Sys_LibraryError() );
 		Sys_UnloadLibrary( libHandle );
 		return NULL;
 	}
 
+	Com_Printf( "Sys_LoadGameDll: Successfully loaded %s with GetModuleAPI at 0x%p\n", filename, *moduleAPI );
 	return libHandle;
 }
 

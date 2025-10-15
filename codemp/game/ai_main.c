@@ -49,6 +49,7 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 //
 #include "ai_main.h"
 #include "w_saber.h"
+#include "g_teach.h"  // For Teach_IsControllingClient()
 //
 #include "chars.h"
 #include "inv.h"
@@ -5965,6 +5966,15 @@ void Bot_SetForcedMovement(int bot, int forward, int right, int up)
 //please don't be too frightened.
 void StandardBotAI(bot_state_t *bs, float thinktime)
 {
+	/* Skip bot AI if entity is under teach playback control */
+	extern qboolean Teach_IsPlayingFor(const gentity_t *ent);
+	if (bs && bs->entitynum >= 0 && bs->entitynum < MAX_GENTITIES) {
+		gentity_t *ent = &g_entities[bs->entitynum];
+		if (Teach_IsPlayingFor(ent)) {
+			return;
+		}
+	}
+
 	int wp, enemy;
 	int desiredIndex;
 	int goalWPIndex;
@@ -7573,6 +7583,11 @@ int BotAIStartFrame(int time) {
 		if( !botstates[i] || !botstates[i]->inuse ) {
 			continue;
 		}
+
+		/* Skip bot AI if under teach playback control */
+		if (Teach_IsControllingClient(i)) {
+			continue;
+		}
 		//
 		botstates[i]->botthink_residual += elapsed_time;
 		//
@@ -7591,6 +7606,11 @@ int BotAIStartFrame(int time) {
 			continue;
 		}
 		if( g_entities[i].client->pers.connected != CON_CONNECTED ) {
+			continue;
+		}
+
+		/* Skip bot commands if under teach playback control */
+		if (Teach_IsControllingClient(i)) {
 			continue;
 		}
 

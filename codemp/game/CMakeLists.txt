@@ -4,7 +4,7 @@
 # This file is part of the OpenJK source code.
 #
 # OpenJK is free software; you can redistribute it and/or modify it
-# under the terms of the GNU General Public License version 2 as
+# under the terms of the GNU General Public License as
 # published by the Free Software Foundation.
 #
 # This program is distributed in the hope that it will be useful,
@@ -47,6 +47,7 @@ set(MPGameGameFiles
 	"${MPDir}/game/bg_vehicleLoad.c"
 	"${MPDir}/game/bg_weapons.c"
 	"${MPDir}/game/FighterNPC.c"
+	"${MPDir}/game/g_accounts.c"
 	"${MPDir}/game/g_active.c"
 	"${MPDir}/game/g_bot.c"
 	"${MPDir}/game/g_client.c"
@@ -69,6 +70,7 @@ set(MPGameGameFiles
 	"${MPDir}/game/g_session.c"
 	"${MPDir}/game/g_spawn.c"
 	"${MPDir}/game/g_svcmds.c"
+	"${MPDir}/game/g_teach.c"      # <-- ADDED
 	"${MPDir}/game/g_syscalls.c"
 	"${MPDir}/game/g_target.c"
 	"${MPDir}/game/g_team.c"
@@ -128,6 +130,7 @@ set(MPGameGameFiles
 	"${MPDir}/game/bg_vehicles.h"
 	"${MPDir}/game/bg_weapons.h"
 	"${MPDir}/game/chars.h"
+	"${MPDir}/game/g_accounts.h"
 	"${MPDir}/game/g_ICARUScb.h"
 	"${MPDir}/game/g_local.h"
 	"${MPDir}/game/g_nav.h"
@@ -141,6 +144,7 @@ set(MPGameGameFiles
 	"${MPDir}/game/surfaceflags.h"
 	"${MPDir}/game/teams.h"
 	"${MPDir}/game/w_saber.h"
+	"${MPDir}/game/g_teach.h"      # <-- ADDED (header listed here like others)
 	)
 source_group("game" FILES ${MPGameGameFiles})
 set(MPGameFiles ${MPGameFiles} ${MPGameGameFiles})

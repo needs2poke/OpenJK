@@ -24,6 +24,7 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 
 #include "g_local.h"
 #include "bg_saga.h"
+#include "g_teach.h"   // teach: record + playback hooks
 
 extern void Jedi_Cloak( gentity_t *self );
 extern void Jedi_Decloak( gentity_t *self );
@@ -695,70 +696,79 @@ SpectatorThink
 =================
 */
 void SpectatorThink( gentity_t *ent, usercmd_t *ucmd ) {
-	pmove_t	pmove;
-	gclient_t	*client;
+    pmove_t   pmove;
+    gclient_t *client;
 
-	client = ent->client;
+    client = ent->client;
 
-	if ( client->sess.spectatorState != SPECTATOR_FOLLOW ) {
-		client->ps.pm_type = PM_SPECTATOR;
-		client->ps.speed = 400;	// faster than normal
-		client->ps.basespeed = 400;
+    if ( client->sess.spectatorState != SPECTATOR_FOLLOW ) {
+        client->ps.pm_type    = PM_SPECTATOR;
+        client->ps.speed      = 400; // faster than normal
+        client->ps.basespeed  = 400;
 
-		//hmm, shouldn't have an anim if you're a spectator, make sure
-		//it gets cleared.
-		client->ps.legsAnim = 0;
-		client->ps.legsTimer = 0;
-		client->ps.torsoAnim = 0;
-		client->ps.torsoTimer = 0;
+        // clear anim state while spectating
+        client->ps.legsAnim   = 0;
+        client->ps.legsTimer  = 0;
+        client->ps.torsoAnim  = 0;
+        client->ps.torsoTimer = 0;
 
-		// set up for pmove
-		memset (&pmove, 0, sizeof(pmove));
-		pmove.ps = &client->ps;
-		pmove.cmd = *ucmd;
-		pmove.tracemask = MASK_PLAYERSOLID & ~CONTENTS_BODY;	// spectators can fly through bodies
-		pmove.trace = SV_PMTrace;
-		pmove.pointcontents = trap->PointContents;
+        // set up for pmove
+        memset(&pmove, 0, sizeof(pmove));
 
-		pmove.noSpecMove = g_noSpecMove.integer;
+        /* --- teach: inject playback just before pmove (spectator path) --- */
+        Teach_FilterOrPlayUcmd(ent, ucmd);      // may rewrite angles/buttons/moves
+        
+        /* ----------------------------------------------------------------- */
 
-		pmove.animations = NULL;
-		pmove.nonHumanoid = qfalse;
+        pmove.ps            = &client->ps;
+        pmove.cmd           = *ucmd;            // use the overridden command
+        pmove.tracemask     = MASK_PLAYERSOLID & ~CONTENTS_BODY;  // spectators fly through bodies
+        pmove.trace         = SV_PMTrace;
+        pmove.pointcontents = trap->PointContents;
 
-		//Set up bg entity data
-		pmove.baseEnt = (bgEntity_t *)g_entities;
-		pmove.entSize = sizeof(gentity_t);
+        pmove.noSpecMove    = g_noSpecMove.integer;
+        pmove.animations    = NULL;
+        pmove.nonHumanoid   = qfalse;
 
-		// perform a pmove
-		Pmove (&pmove);
-		// save results of pmove
-		VectorCopy( client->ps.origin, ent->s.origin );
+        // Set up bg entity data
+        pmove.baseEnt = (bgEntity_t *)g_entities;
+        pmove.entSize = sizeof(gentity_t);
 
-		if (ent->client->tempSpectate < level.time)
-		{
-			G_TouchTriggers( ent );
-		}
-		trap->UnlinkEntity( (sharedEntity_t *)ent );
-	}
+        // perform a pmove
+        Pmove(&pmove);
 
-	client->oldbuttons = client->buttons;
-	client->buttons = ucmd->buttons;
+        // save results of pmove
+        VectorCopy(client->ps.origin, ent->s.origin);
 
-	if (client->tempSpectate < level.time)
-	{
-		// attack button cycles through spectators
-		if ( (client->buttons & BUTTON_ATTACK) && !(client->oldbuttons & BUTTON_ATTACK) )
-			Cmd_FollowCycle_f( ent, 1 );
+        if (ent->client->tempSpectate < level.time) {
+            G_TouchTriggers(ent);
+        }
+        trap->UnlinkEntity((sharedEntity_t *)ent);
+    }
 
-		else if ( client->sess.spectatorState == SPECTATOR_FOLLOW && (client->buttons & BUTTON_ALT_ATTACK) && !(client->oldbuttons & BUTTON_ALT_ATTACK) )
-			Cmd_FollowCycle_f( ent, -1 );
+    client->oldbuttons = client->buttons;
+    client->buttons    = ucmd->buttons;
 
-		if (client->sess.spectatorState == SPECTATOR_FOLLOW && (ucmd->upmove > 0))
-		{ //jump now removes you from follow mode
-			StopFollowing(ent);
-		}
-	}
+    if (client->tempSpectate < level.time) {
+        // attack button cycles through spectators
+        if ( (client->buttons & BUTTON_ATTACK) && !(client->oldbuttons & BUTTON_ATTACK) ) {
+            Cmd_FollowCycle_f(ent, 1);
+        } else if ( client->sess.spectatorState == SPECTATOR_FOLLOW &&
+                    (client->buttons & BUTTON_ALT_ATTACK) && !(client->oldbuttons & BUTTON_ALT_ATTACK) ) {
+            Cmd_FollowCycle_f(ent, -1);
+        }
+
+        // jump exits follow mode
+        if (client->sess.spectatorState == SPECTATOR_FOLLOW && (ucmd->upmove > 0)) {
+            StopFollowing(ent);
+        }
+    }
 }
+
+
+
+
+
 
 
 
@@ -1575,7 +1585,10 @@ void G_HeldByMonster( gentity_t *ent, usercmd_t *ucmd )
 			}
 			VectorClear( ent->client->ps.velocity );
 			G_SetOrigin( ent, ent->client->ps.origin );
-			SetClientViewAngle( ent, ent->client->ps.viewangles );
+			/* During teach playback, don't fight the forced camera */
+			if ( !Teach_IsPlayingFor(ent) ) {
+				SetClientViewAngle( ent, ent->client->ps.viewangles );
+			}
 			G_SetAngles( ent, ent->client->ps.viewangles );
 			trap->LinkEntity( (sharedEntity_t *)ent );//redundant?
 		}
@@ -2012,47 +2025,58 @@ void ClientThink_real( gentity_t *ent ) {
 //		trap->Print("serverTime >>>>>\n" );
 	}
 
-	if (isNPC && (ucmd->serverTime - client->ps.commandTime) < 1)
-	{
-		ucmd->serverTime = client->ps.commandTime + 100;
-	}
+if (isNPC && (ucmd->serverTime - client->ps.commandTime) < 1)
+{
+    ucmd->serverTime = client->ps.commandTime + 100;
+}
 
-	msec = ucmd->serverTime - client->ps.commandTime;
-	// following others may result in bad times, but we still want
-	// to check for follow toggles
-	if ( msec < 1 && client->sess.spectatorState != SPECTATOR_FOLLOW ) {
-		return;
-	}
+msec = ucmd->serverTime - client->ps.commandTime;
+// following others may result in bad times, but we still want
+// to check for follow toggles
+if ( msec < 1 && client->sess.spectatorState != SPECTATOR_FOLLOW ) {
+    return;
+}
 
-	if ( msec > 200 ) {
-		msec = 200;
-	}
+if ( msec > 200 ) {
+    msec = 200;
+}
 
-	if ( pmove_msec.integer < 8 ) {
-		trap->Cvar_Set("pmove_msec", "8");
-	}
-	else if (pmove_msec.integer > 33) {
-		trap->Cvar_Set("pmove_msec", "33");
-	}
+if ( pmove_msec.integer < 8 ) {
+    trap->Cvar_Set("pmove_msec", "8");
+}
+else if (pmove_msec.integer > 33) {
+    trap->Cvar_Set("pmove_msec", "33");
+}
 
-	if ( pmove_fixed.integer || client->pers.pmoveFixed ) {
-		ucmd->serverTime = ((ucmd->serverTime + pmove_msec.integer-1) / pmove_msec.integer) * pmove_msec.integer;
-		//if (ucmd->serverTime - client->ps.commandTime <= 0)
-		//	return;
-	}
+if ( pmove_fixed.integer || client->pers.pmoveFixed ) {
+    ucmd->serverTime = ((ucmd->serverTime + pmove_msec.integer-1) / pmove_msec.integer) * pmove_msec.integer;
+    //if (ucmd->serverTime - client->ps.commandTime <= 0)
+    //  return;
+}
 
-	//
-	// check for exiting intermission
-	//
-	if ( level.intermissiontime )
-	{
-		if ( ent->s.number < MAX_CLIENTS
-			|| client->NPC_class == CLASS_VEHICLE )
-		{//players and vehicles do nothing in intermissions
-			ClientIntermissionThink( client );
-			return;
-		}
-	}
+	/* ===================== TEACH: record hook ===================== */
+	/*
+	   Important: We only record here. Playback override is applied later right
+	   before Pmove so it wins over all intermediate logic and avoids double-
+	   stepping serverTime/angles in a single frame. The spectator path still
+	   injects playback in SpectatorThink().
+	*/
+	Teach_RecordUsercmd(ent, ucmd);        // capture sanitized cmd (post time clamping)
+	/* ============================================================== */
+
+//
+// check for exiting intermission
+//
+if ( level.intermissiontime )
+{
+    if ( ent->s.number < MAX_CLIENTS
+        || client->NPC_class == CLASS_VEHICLE )
+    {//players and vehicles do nothing in intermissions
+        ClientIntermissionThink( client );
+        return;
+    }
+}
+
 
 	// spectators don't do much
 	if ( client->sess.sessionTeam == TEAM_SPECTATOR || client->tempSpectate >= level.time ) {
@@ -2600,7 +2624,10 @@ void ClientThink_real( gentity_t *ent ) {
 				VectorSubtract( thrower->client->ps.origin, ent->client->ps.origin, entDir );
 				VectorCopy( ent->client->ps.viewangles, otherAngles );
 				otherAngles[YAW] = vectoyaw( entDir );
-				SetClientViewAngle( ent, otherAngles );
+				/* Preserve recorded view during teach playback */
+				if ( !Teach_IsPlayingFor(ent) ) {
+					SetClientViewAngle( ent, otherAngles );
+				}
 
 				VectorCopy(thrower->client->ps.viewangles, tAngles);
 				tAngles[PITCH] = tAngles[ROLL] = 0;
@@ -2812,107 +2839,105 @@ void ClientThink_real( gentity_t *ent ) {
 		ucmd->buttons &= ~BUTTON_USE;
 	}
 
-	//FIXME: need to do this before check to avoid walls and cliffs (or just cliffs?)
+	// FIXME: need to do this before check to avoid walls and cliffs (or just cliffs?)
 	G_AddPushVecToUcmd( ent, ucmd );
 
-	//play/stop any looping sounds tied to controlled movement
+	// play/stop any looping sounds tied to controlled movement
 	G_CheckMovingLoopingSounds( ent, ucmd );
+/* --- teach: final override so playback wins before pmove (player path) --- */
+if ( g_teachPlay.active && ent->s.number == g_teachPlay.clientNum ) {
+    Teach_FilterOrPlayUcmd( ent, ucmd );   // override ucmd for playback
+    /* do NOT mirror into pers.cmd */
+    /* do NOT touch ucmd->serverTime */
 
-	pmove.ps = &client->ps;
-	pmove.cmd = *ucmd;
-	if ( pmove.ps->pm_type == PM_DEAD ) {
-		pmove.tracemask = MASK_PLAYERSOLID & ~CONTENTS_BODY;
-	}
-	else if ( ent->r.svFlags & SVF_BOT ) {
-		pmove.tracemask = MASK_PLAYERSOLID | CONTENTS_MONSTERCLIP;
-	}
-	else {
-		pmove.tracemask = MASK_PLAYERSOLID;
-	}
-	pmove.trace = SV_PMTrace;
-	pmove.pointcontents = trap->PointContents;
-	pmove.debugLevel = g_debugMove.integer;
-	pmove.noFootsteps = (dmflags.integer & DF_NO_FOOTSTEPS) > 0;
+    // If you were seeing "frozen" state, guard pm_type narrowly (optional):
+    if ( client->ps.pm_type == PM_FREEZE || client->ps.pm_type == PM_INTERMISSION ) {
+        client->ps.pm_type = PM_NORMAL;
+    }
+}
 
-	pmove.pmove_fixed = pmove_fixed.integer | client->pers.pmoveFixed;
-	pmove.pmove_msec = pmove_msec.integer;
-	pmove.pmove_float = pmove_float.integer;
+/* --- teach: dual playback override (lockstep for both actors) --- */
+extern teach_duel_play_t g_teachDuelPlay;
+extern void Teach_DuelFilterOrPlayUcmd(gentity_t *ent, usercmd_t *ucmd);
+if (g_teachDuelPlay.active) {
+    if (ent->s.number == g_teachDuelPlay.clientNumA || ent->s.number == g_teachDuelPlay.clientNumB) {
+        Teach_DuelFilterOrPlayUcmd(ent, ucmd);
+    }
+}
 
-	pmove.animations = bgAllAnims[ent->localAnimIndex].anims;//NULL;
+/* ------------------------------------------------------------------------ */
 
-	//rww - bgghoul2
-	pmove.ghoul2 = NULL;
+/* build pmove using the final command */
+pmove.ps = &client->ps;
+pmove.cmd = *ucmd;
 
-#ifdef _DEBUG
-	if (g_disableServerG2.integer)
-	{
+if ( pmove.ps->pm_type == PM_DEAD ) {
+    pmove.tracemask = MASK_PLAYERSOLID & ~CONTENTS_BODY;
+}
+else if ( ent->r.svFlags & SVF_BOT ) {
+    pmove.tracemask = MASK_PLAYERSOLID | CONTENTS_MONSTERCLIP;
+}
+else {
+    pmove.tracemask = MASK_PLAYERSOLID;
+}
 
-	}
-	else
+pmove.trace         = SV_PMTrace;
+pmove.pointcontents = trap->PointContents;
+pmove.debugLevel    = g_debugMove.integer;
+pmove.noFootsteps   = (dmflags.integer & DF_NO_FOOTSTEPS) > 0;
+
+pmove.pmove_fixed = pmove_fixed.integer | client->pers.pmoveFixed;
+pmove.pmove_msec  = pmove_msec.integer;
+pmove.pmove_float = pmove_float.integer;
+
+pmove.animations = bgAllAnims[ent->localAnimIndex].anims; /* NULL by default */
+
+/* bgghoul2 setup */
+#ifdef _FULL_G2
+if (ent->ghoul2) {
+    if (ent->localAnimIndex > 1) { /* non-humanoid: no g2 */
+        pmove.ghoul2 = NULL;
+    } else {
+        pmove.ghoul2 = ent->ghoul2;
+        pmove.g2Bolts_LFoot = trap->G2API_AddBolt(ent->ghoul2, 0, "*l_leg_foot");
+        pmove.g2Bolts_RFoot = trap->G2API_AddBolt(ent->ghoul2, 0, "*r_leg_foot");
+    }
+} else {
+    pmove.ghoul2 = NULL;
+}
+#else
+pmove.ghoul2 = NULL;
 #endif
-	if (ent->ghoul2)
-	{
-		if (ent->localAnimIndex > 1)
-		{ //if it isn't humanoid then we will be having none of this.
-			pmove.ghoul2 = NULL;
-		}
-		else
-		{
-			pmove.ghoul2 = ent->ghoul2;
-			pmove.g2Bolts_LFoot = trap->G2API_AddBolt(ent->ghoul2, 0, "*l_leg_foot");
-			pmove.g2Bolts_RFoot = trap->G2API_AddBolt(ent->ghoul2, 0, "*r_leg_foot");
-		}
-	}
 
-	//point the saber data to the right place
+/* point the saber data to the right place (disabled) */
 #if 0
-	k = 0;
-	while (k < MAX_SABERS)
-	{
-		if (ent->client->saber[k].model[0])
-		{
-			pm.saber[k] = &ent->client->saber[k];
-		}
-		else
-		{
-			pm.saber[k] = NULL;
-		}
-		k++;
-	}
+k = 0;
+while (k < MAX_SABERS)
+{
+    if (ent->client->saber[k].model[0]) {
+        pm.saber[k] = &ent->client->saber[k];
+    } else {
+        pm.saber[k] = NULL;
+    }
+    k++;
+}
 #endif
 
-	//I'll just do this every frame in case the scale changes in realtime (don't need to update the g2 inst for that)
-	VectorCopy(ent->modelScale, pmove.modelScale);
-	//rww end bgghoul2
+/* update per-frame scale (doesn't need g2 instance rebuild) */
+VectorCopy(ent->modelScale, pmove.modelScale);
 
-	pmove.gametype = level.gametype;
-	pmove.debugMelee = g_debugMelee.integer;
-	pmove.stepSlideFix = g_stepSlideFix.integer;
+pmove.gametype     = level.gametype;
+pmove.debugMelee   = g_debugMelee.integer;
+pmove.stepSlideFix = g_stepSlideFix.integer;
+pmove.noSpecMove   = g_noSpecMove.integer;
+pmove.nonHumanoid  = (ent->localAnimIndex > 0);
 
-	pmove.noSpecMove = g_noSpecMove.integer;
+VectorCopy( client->ps.origin, client->oldOrigin );
 
-	pmove.nonHumanoid = (ent->localAnimIndex > 0);
+/* Set up bg entity data */
+pmove.baseEnt = (bgEntity_t *)g_entities;
+pmove.entSize = sizeof(gentity_t);
 
-	VectorCopy( client->ps.origin, client->oldOrigin );
-
-	/*
-	if (level.intermissionQueued != 0 && g_singlePlayer.integer) {
-		if ( level.time - level.intermissionQueued >= 1000  ) {
-			pm.cmd.buttons = 0;
-			pm.cmd.forwardmove = 0;
-			pm.cmd.rightmove = 0;
-			pm.cmd.upmove = 0;
-			if ( level.time - level.intermissionQueued >= 2000 && level.time - level.intermissionQueued <= 2500 ) {
-				trap->SendConsoleCommand( EXEC_APPEND, "centerview\n");
-			}
-			ent->client->ps.pm_type = PM_SPINTERMISSION;
-		}
-	}
-	*/
-
-	//Set up bg entity data
-	pmove.baseEnt = (bgEntity_t *)g_entities;
-	pmove.entSize = sizeof(gentity_t);
 
 	if (ent->client->ps.saberLockTime > level.time)
 	{
@@ -2926,7 +2951,10 @@ void ClientThink_real( gentity_t *ent ) {
 			VectorSubtract( blockOpp->r.currentOrigin, ent->r.currentOrigin, lockDir );
 			//lockAng[YAW] = vectoyaw( defDir );
 			vectoangles(lockDir, lockAng);
-			SetClientViewAngle( ent, lockAng );
+			/* Skip lock forcing while teach playback controls view */
+			if ( !Teach_IsPlayingFor(ent) ) {
+				SetClientViewAngle( ent, lockAng );
+			}
 		}
 
 		if ( ent->client->ps.saberLockHitCheckTime < level.time )
@@ -3051,6 +3079,22 @@ void ClientThink_real( gentity_t *ent ) {
 
 	Pmove (&pmove);
 
+	/* --- teach: force viewangles after Pmove for playback --- */
+	extern teach_duel_play_t g_teachDuelPlay;
+	extern teach_play_t g_teachPlay;
+	extern void Teach_DuelPostPmove(gentity_t *ent);
+	extern void Teach_PlayPostPmove(gentity_t *ent);
+	if (g_teachDuelPlay.active) {
+		if (ent->s.number == g_teachDuelPlay.clientNumA || ent->s.number == g_teachDuelPlay.clientNumB) {
+			Teach_DuelPostPmove(ent);
+		}
+	}
+	if (g_teachPlay.active) {
+		if (ent->s.number == g_teachPlay.clientNum) {
+			Teach_PlayPostPmove(ent);
+		}
+	}
+
 	if (ent->client->solidHack)
 	{
 		if (ent->client->solidHack > level.time)
@@ -3059,7 +3103,18 @@ void ClientThink_real( gentity_t *ent ) {
 		}
 		else
 		{
-			ent->r.contents = CONTENTS_BODY;
+			/* TEACH DUEL COLLISION: Make teach bots ghosts to live players
+			 * Check if this entity is a teach-controlled bot */
+			#define EF_TEACH_BOT EF_NOT_USED_1
+			qboolean isTeachBot = (ent->s.eFlags & EF_TEACH_BOT) ? qtrue : qfalse;
+
+			if (isTeachBot) {
+				/* Remove CONTENTS_BODY so live players can walk through teach bots
+				 * But teach bots can still collide with each other via duel system */
+				ent->r.contents = 0;
+			} else {
+				ent->r.contents = CONTENTS_BODY;
+			}
 			ent->client->solidHack = 0;
 		}
 	}
@@ -3395,6 +3450,10 @@ void ClientThink_real( gentity_t *ent ) {
 	client->oldbuttons = client->buttons;
 	client->buttons = ucmd->buttons;
 	client->latched_buttons |= client->buttons & ~client->oldbuttons;
+
+	if ( Teach_IsPlayingFor(ent) ) {
+		Teach_ApplyForcedView(ent);
+	}
 
 //	G_VehicleAttachDroidUnit( ent );
 

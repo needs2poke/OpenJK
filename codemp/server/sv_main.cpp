@@ -72,6 +72,8 @@ cvar_t	*sv_banFile;
 cvar_t	*sv_maxOOBRate;
 cvar_t	*sv_maxOOBRateIP;
 cvar_t	*sv_autoWhitelist;
+cvar_t	*sv_diagSnapshotLast;
+cvar_t	*sv_diagSnapshotMax;
 
 serverBan_t serverBans[SERVER_MAXBANS];
 int serverBansCount = 0;
@@ -1252,4 +1254,3 @@ void SV_Frame( int msec ) {
 }
 
 //============================================================================
-

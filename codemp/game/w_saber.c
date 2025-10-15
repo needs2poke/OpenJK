@@ -25,6 +25,7 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #include "w_saber.h"
 #include "ai_main.h"
 #include "ghoul2/G2.h"
+#include "g_teach.h"
 
 #define SABER_BOX_SIZE 16.0f
 extern bot_state_t *botstates[MAX_CLIENTS];
@@ -2020,6 +2021,10 @@ static QINLINE qboolean WP_GetSaberDeflectionAngle( gentity_t *attacker, gentity
 			}
 #endif
 			attacker->client->ps.saberBlocked = BLOCKED_ATK_BOUNCE;
+
+			/* Record block event for teach duel replay */
+			Teach_RecordCombatEvent(COMBAT_EVENT_BLOCK, defender, attacker, 0, NULL, -1);
+
 			return qfalse;
 		}
 		else
@@ -4984,6 +4989,9 @@ blockStuff:
 			otherOwner->client->ps.saberMove = BG_BrokenParryForParry( otherOwner->client->ps.saberMove );
 			otherOwner->client->ps.saberBlocked = BLOCKED_PARRY_BROKEN;
 
+			/* Record broken parry event for teach duel replay */
+			Teach_RecordCombatEvent(COMBAT_EVENT_PARRY, self, otherOwner, 0, NULL, -1);
+
 			didDefense = qtrue;
 		}
 		else if ((selfSaberLevel > FORCE_LEVEL_2) && //if we're doing a special attack, we can send them into a broken parry too (MP only)
@@ -6350,11 +6358,15 @@ void DownedSaberThink(gentity_t *saberent)
 
 	saberOwn = &g_entities[saberent->r.ownerNum];
 
+	/* Allow PMF_FOLLOW during teach playback */
+	extern qboolean Teach_IsPlayingFor(const gentity_t *ent);
+	qboolean isTeachPlaying = (saberOwn && saberOwn->client) ? Teach_IsPlayingFor(saberOwn) : qfalse;
+
 	if (!saberOwn ||
 		!saberOwn->inuse ||
 		!saberOwn->client ||
 		saberOwn->client->sess.sessionTeam == TEAM_SPECTATOR ||
-		(saberOwn->client->ps.pm_flags & PMF_FOLLOW))
+		((saberOwn->client->ps.pm_flags & PMF_FOLLOW) && !isTeachPlaying))
 	{
 		MakeDeadSaber(saberent);
 
@@ -8131,8 +8143,9 @@ void WP_SaberPositionUpdate( gentity_t *self, usercmd_t *ucmd )
 		self->inuse &&
 		self->client &&
 		self->client->saberCycleQueue &&
-		(self->client->ps.weaponTime <= 0 || self->health < 1))
+		(self->client->ps.weaponTime <= 200 || self->health < 1))
 	{ //we cycled attack levels while we were busy, so update now that we aren't (even if that means we're dead)
+	  //Changed from weaponTime <= 0 to <= 200 to reduce input-eating when cycling styles during combat
 		self->client->ps.fd.saberAnimLevel = self->client->saberCycleQueue;
 		self->client->saberCycleQueue = 0;
 	}

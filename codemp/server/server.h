@@ -182,6 +182,9 @@ typedef struct client_s {
 	int				pureAuthentic;
 	qboolean		gotCP; // TTimo - additional flag to distinguish between a bad pure checksum, and no cp command at all
 	netchan_t		netchan;
+	int				diagLastSnapshotEntities;
+	int				diagPeakSnapshotEntities;
+	int				diagNextReportTime;
 
 	int				lastUserInfoChange; //if > svs.time && count > x, deny change -rww
 	int				lastUserInfoCount; //allow a certain number of changes within a certain time period -rww
@@ -240,6 +243,8 @@ extern	cvar_t	*sv_snapsPolicy;
 extern	cvar_t	*sv_fps;
 extern	cvar_t	*sv_timeout;
 extern	cvar_t	*sv_zombietime;
+extern	cvar_t	*sv_diagSnapshotLast;
+extern	cvar_t	*sv_diagSnapshotMax;
 extern	cvar_t	*sv_rconPassword;
 extern	cvar_t	*sv_privatePassword;
 extern	cvar_t	*sv_allowDownload;

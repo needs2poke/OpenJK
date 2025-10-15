@@ -23,7 +23,19 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 */
 
 #include "g_local.h"
+#include "g_teach.h"
 #include "bg_saga.h"
+#include "g_accounts.h"
+
+// Teach recorder helper: capture the resulting saber style this frame
+#ifndef TEACH_CAPTURE_SABER_STYLE
+#define TEACH_CAPTURE_SABER_STYLE(ent,style) \
+    do { \
+        if ( g_teachRec.active && (ent) && (ent)->client && ((ent)->s.number == g_teachRec.clientNum) ) { \
+            g_teachRec.pendingSaberStyle = (style); \
+        } \
+    } while (0)
+#endif
 
 #include "ui/menudef.h"			// for the voice chats
 
@@ -995,9 +1007,12 @@ void Cmd_Team_f( gentity_t *ent ) {
 		return;
 	}
 
+	// LUKE BOT FIX: Allow Luke to bypass team switch cooldown
 	if ( ent->client->switchTeamTime > level.time ) {
-		trap->SendServerCommand( ent-g_entities, va("print \"%s\n\"", G_GetStringEdString("MP_SVGAME", "NOSWITCH")) );
-		return;
+		if ( Q_stricmp( ent->client->pers.netname, "Luke Skywalker" ) != 0 ) {
+			trap->SendServerCommand( ent-g_entities, va("print \"%s\n\"", G_GetStringEdString("MP_SVGAME", "NOSWITCH")) );
+			return;
+		}
 	}
 
 	if (gEscaping)
@@ -2684,6 +2699,11 @@ void Cmd_ToggleSaber_f(gentity_t *ent)
 		}
 	}
 
+	if ( g_teachRec.active && ent->s.number == g_teachRec.clientNum )
+	{
+		g_teachRec.pendingGenericCmd = GENCMD_SABERSWITCH;
+	}
+
 	if (ent->client->ps.saberInFlight)
 	{
 		if (ent->client->ps.saberEntityNum)
@@ -2732,6 +2752,7 @@ void Cmd_ToggleSaber_f(gentity_t *ent)
 			{
 				G_Sound(ent, CHAN_AUTO, ent->client->saber[1].soundOn);
 			}
+			TEACH_CAPTURE_SABER_STYLE(ent, ent->client->ps.fd.saberAnimLevel);
 		}
 		else
 		{
@@ -2747,6 +2768,7 @@ void Cmd_ToggleSaber_f(gentity_t *ent)
 			}
 			//prevent anything from being done for 400ms after holster
 			ent->client->ps.weaponTime = 400;
+			TEACH_CAPTURE_SABER_STYLE(ent, ent->client->ps.fd.saberAnimLevel);
 		}
 	}
 }
@@ -2762,6 +2784,11 @@ void Cmd_SaberAttackCycle_f(gentity_t *ent)
 	if ( !ent || !ent->client )
 	{
 		return;
+	}
+
+	if ( g_teachRec.active && ent->s.number == g_teachRec.clientNum )
+	{
+		g_teachRec.pendingGenericCmd = GENCMD_SABERATTACKCYCLE;
 	}
 
 	if ( level.intermissionQueued || level.intermissiontime )
@@ -2801,6 +2828,7 @@ void Cmd_SaberAttackCycle_f(gentity_t *ent)
 				ent->client->ps.saberHolstered = 0;
 				//g_active should take care of this, but...
 				ent->client->ps.fd.saberAnimLevel = SS_DUAL;
+				TEACH_CAPTURE_SABER_STYLE(ent, ent->client->ps.fd.saberAnimLevel);
 			}
 			else if ( ent->client->ps.saberHolstered == 0 )
 			{//have none holstered
@@ -2818,6 +2846,7 @@ void Cmd_SaberAttackCycle_f(gentity_t *ent)
 					ent->client->ps.saberHolstered = 1;
 					//g_active should take care of this, but...
 					ent->client->ps.fd.saberAnimLevel = SS_FAST;
+					TEACH_CAPTURE_SABER_STYLE(ent, ent->client->ps.fd.saberAnimLevel);
 				}
 			}
 
@@ -2825,6 +2854,7 @@ void Cmd_SaberAttackCycle_f(gentity_t *ent)
 			{
 				trap->SendServerCommand( ent-g_entities, va("print \"SABERSTANCEDEBUG: Attempted to toggle dual saber blade.\n\"") );
 			}
+			TEACH_CAPTURE_SABER_STYLE(ent, ent->client->ps.fd.saberAnimLevel);
 			return;
 		}
 	}
@@ -2851,10 +2881,12 @@ void Cmd_SaberAttackCycle_f(gentity_t *ent)
 				if ( ent->client->ps.weaponTime <= 0 )
 				{ //not busy, set it now
 					ent->client->ps.fd.saberAnimLevel = selectLevel;
+					TEACH_CAPTURE_SABER_STYLE(ent, selectLevel);
 				}
 				else
 				{ //can't set it now or we might cause unexpected chaining, so queue it
 					ent->client->saberCycleQueue = selectLevel;
+					TEACH_CAPTURE_SABER_STYLE(ent, selectLevel);
 				}
 			}
 		}
@@ -2878,10 +2910,12 @@ void Cmd_SaberAttackCycle_f(gentity_t *ent)
 					if ( ent->client->ps.weaponTime <= 0 )
 					{ //not busy, set it now
 						ent->client->ps.fd.saberAnimLevel = ent->client->saber[0].singleBladeStyle;
+						TEACH_CAPTURE_SABER_STYLE(ent, ent->client->ps.fd.saberAnimLevel);
 					}
 					else
 					{ //can't set it now or we might cause unexpected chaining, so queue it
 						ent->client->saberCycleQueue = ent->client->saber[0].singleBladeStyle;
+						TEACH_CAPTURE_SABER_STYLE(ent, ent->client->saber[0].singleBladeStyle);
 					}
 				}
 			}
@@ -2890,6 +2924,7 @@ void Cmd_SaberAttackCycle_f(gentity_t *ent)
 		{
 			trap->SendServerCommand( ent-g_entities, va("print \"SABERSTANCEDEBUG: Attempted to toggle staff blade.\n\"") );
 		}
+		TEACH_CAPTURE_SABER_STYLE(ent, ent->client->ps.fd.saberAnimLevel);
 		return;
 	}
 
@@ -2967,10 +3002,12 @@ void Cmd_SaberAttackCycle_f(gentity_t *ent)
 	if (ent->client->ps.weaponTime <= 0)
 	{ //not busy, set it now
 		ent->client->ps.fd.saberAnimLevelBase = ent->client->ps.fd.saberAnimLevel = selectLevel;
+		TEACH_CAPTURE_SABER_STYLE(ent, selectLevel);
 	}
 	else
 	{ //can't set it now or we might cause unexpected chaining, so queue it
 		ent->client->ps.fd.saberAnimLevelBase = ent->client->saberCycleQueue = selectLevel;
+		TEACH_CAPTURE_SABER_STYLE(ent, selectLevel);
 	}
 }
 
@@ -3390,6 +3427,7 @@ int cmdcmp( const void *a, const void *b ) {
 }
 
 command_t commands[] = {
+	{ "account",			Cmd_AccountStats_f,			0 },
 	{ "addbot",				Cmd_AddBot_f,				0 },
 	{ "callteamvote",		Cmd_CallTeamVote_f,			CMD_NOINTERMISSION },
 	{ "callvote",			Cmd_CallVote_f,				CMD_NOINTERMISSION },
@@ -3411,10 +3449,13 @@ command_t commands[] = {
 	{ "killother",			Cmd_KillOther_f,			CMD_CHEAT|CMD_NOINTERMISSION },
 //	{ "kylesmash",			TryGrapple,					0 },
 	{ "levelshot",			Cmd_LevelShot_f,			CMD_CHEAT|CMD_ALIVE|CMD_NOINTERMISSION },
+	{ "login",				Cmd_Login_f,				0 },
+	{ "logout",				Cmd_Logout_f,				0 },
 	{ "maplist",			Cmd_MapList_f,				CMD_NOINTERMISSION },
 	{ "noclip",				Cmd_Noclip_f,				CMD_CHEAT|CMD_ALIVE|CMD_NOINTERMISSION },
 	{ "notarget",			Cmd_Notarget_f,				CMD_CHEAT|CMD_ALIVE|CMD_NOINTERMISSION },
 	{ "npc",				Cmd_NPC_f,					CMD_CHEAT|CMD_ALIVE },
+	{ "register",			Cmd_Register_f,				0 },
 	{ "say",				Cmd_Say_f,					0 },
 	{ "say_team",			Cmd_SayTeam_f,				0 },
 	{ "score",				Cmd_Score_f,				0 },

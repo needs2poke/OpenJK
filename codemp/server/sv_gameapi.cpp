@@ -2809,6 +2809,7 @@ void SV_BindGame( void ) {
 
 	gvm = VM_Create( VM_GAME );
 	if ( gvm && !gvm->isLegacy ) {
+		Com_Printf( "SV_BindGame: Using NEW MODULE API (native library)\n" );
 		gi.Print								= Com_Printf;
 		gi.Error								= Com_Error;
 		gi.Milliseconds							= Com_Milliseconds;
@@ -3132,6 +3133,7 @@ void SV_BindGame( void ) {
 	}
 
 	// fall back to legacy syscall/vm_call api
+	Com_Printf( "SV_BindGame: Falling back to LEGACY SYSCALL API (bytecode VM)\n" );
 	gvm = VM_CreateLegacy( VM_GAME, SV_GameSystemCalls );
 	if ( !gvm ) {
 		svs.gameStarted = qfalse;

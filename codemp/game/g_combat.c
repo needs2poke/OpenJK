@@ -25,6 +25,7 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 
 #include "b_local.h"
 #include "bg_saga.h"
+#include "g_teach.h"
 
 extern int G_ShipSurfaceForSurfName( const char *surfaceName );
 extern qboolean G_FlyVehicleDestroySurface( gentity_t *veh, int surface );
@@ -4560,6 +4561,38 @@ void G_Damage( gentity_t *targ, gentity_t *inflictor, gentity_t *attacker, vec3_
 		}
 	}
 
+	/* Training Duel Mode: Reduce or eliminate damage in duels for practice */
+	if (targ && targ->client && attacker && attacker->client &&
+		targ->client->ps.duelInProgress && attacker->client->ps.duelInProgress)
+	{
+		extern vmCvar_t g_duelTrainingMode;
+		extern vmCvar_t g_duelTrainingDamage;
+
+		if (g_duelTrainingMode.integer)
+		{
+			/* Training mode active - apply damage reduction */
+			if (g_duelTrainingDamage.integer == 0)
+			{
+				/* No damage mode - hits register but deal 0 damage */
+				damage = 0;
+			}
+			else if (g_duelTrainingDamage.integer > 0)
+			{
+				/* Fixed damage mode - all hits deal exactly N damage */
+				damage = g_duelTrainingDamage.integer;
+			}
+			/* Note: Negative values use damage multiplier
+			 * e.g., -50 = 50% damage (damage * 0.5) */
+			else if (g_duelTrainingDamage.integer < 0)
+			{
+				float multiplier = (float)(-g_duelTrainingDamage.integer) / 100.0f;
+				damage = (int)((float)damage * multiplier);
+				if (damage < 1 && g_duelTrainingDamage.integer != -100)
+					damage = 1; /* Minimum 1 damage unless explicitly 0% */
+			}
+		}
+	}
+
 	if ( !(dflags & DAMAGE_NO_PROTECTION) )
 	{//rage overridden by no_protection
 		if (targ && targ->client && (targ->client->ps.fd.forcePowersActive & (1 << FP_RAGE)))
@@ -5387,6 +5420,11 @@ void G_Damage( gentity_t *targ, gentity_t *inflictor, gentity_t *attacker, vec3_
 		}
 		targ->health = targ->health - take;
 
+		/* Record combat event for teach duel replay */
+		if (take > 0 && mod == MOD_SABER && targ->client && attacker && attacker->client) {
+			Teach_RecordCombatEvent(COMBAT_EVENT_HIT, attacker, targ, take, dir, gPainHitLoc);
+		}
+
 		if ( (targ->flags&FL_UNDYING) )
 		{//take damage down to 1, but never die
 			if ( targ->health < 1 )
@@ -5510,6 +5548,12 @@ void G_Damage( gentity_t *targ, gentity_t *inflictor, gentity_t *attacker, vec3_
 			}
 
 			targ->enemy = attacker;
+
+			/* Record death event for teach duel replay */
+			if (targ->client && attacker && attacker->client) {
+				Teach_RecordCombatEvent(COMBAT_EVENT_DEATH, attacker, targ, take, dir, gPainHitLoc);
+			}
+
 			targ->die (targ, inflictor, attacker, take, mod);
 			G_ActivateBehavior( targ, BSET_DEATH );
 			return;

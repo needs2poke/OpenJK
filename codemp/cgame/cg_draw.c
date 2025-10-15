@@ -8340,6 +8340,8 @@ static void CG_Draw2D( void ) {
 		CG_DrawCenterString();
 	}
 
+	CG_EntInfo_DrawOverlay();
+
 	// always draw chat
 	CG_ChatBox_DrawStrings();
 }
@@ -8463,6 +8465,5 @@ void CG_DrawActive( stereoFrame_t stereoView ) {
 	// draw status bar and other floating elements
  	CG_Draw2D();
 }
-
 
 

@@ -25,6 +25,11 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 // this file holds commands that can be executed by the server console, but not remote clients
 
 #include "g_local.h"
+#include "g_teach.h" // TEACH: server console hook
+
+// Forward declaration for G_Say (defined in g_cmds.c)
+void G_Say( gentity_t *ent, gentity_t *target, int mode, const char *chatText );
+
 
 /*
 ==============================================================================
@@ -109,6 +114,18 @@ static qboolean StringToFilter( char *s, ipFilter_t *f ) {
 
 	return qtrue;
 }
+
+static void TPrintF(const char* fmt, ...) {
+    char buf[1024];
+    va_list ap;
+    va_start(ap, fmt);
+    Q_vsnprintf(buf, sizeof(buf), fmt, ap);
+    va_end(ap);
+    trap->Print("%s", buf);
+    G_LogPrintf("%s", buf);
+}
+
+
 
 /*
 =================
@@ -378,6 +395,24 @@ void	Svcmd_EntityList_f (void) {
 	}
 }
 
+static void Svcmd_EntityDiag_f( void ) {
+	const entityDiagnostics_t *diag = &level.entityDiagnostics;
+
+	trap->Print("^5Entity diagnostics (current / peak)^7\n");
+	trap->Print("  total         : %4i / %4i\n", diag->current.total, diag->peak.total);
+	trap->Print("  players       : %4i / %4i\n", diag->current.players, diag->peak.players);
+	trap->Print("  npcs          : %4i / %4i\n", diag->current.npcs, diag->peak.npcs);
+	trap->Print("  missiles      : %4i / %4i\n", diag->current.missiles, diag->peak.missiles);
+	trap->Print("  movers        : %4i / %4i\n", diag->current.movers, diag->peak.movers);
+	trap->Print("  items         : %4i / %4i\n", diag->current.items, diag->peak.items);
+	trap->Print("  bodies        : %4i / %4i\n", diag->current.bodies, diag->peak.bodies);
+	trap->Print("  fx            : %4i / %4i\n", diag->current.fx, diag->peak.fx);
+	trap->Print("  temp entities : %4i / %4i\n", diag->current.tempEntities, diag->peak.tempEntities);
+	trap->Print("  other         : %4i / %4i\n", diag->current.other, diag->peak.other);
+	trap->Print("^5Snapshot entities (current / peak): ^3%i / %i^7\n",
+		diag->snapshotCurrent, diag->snapshotPeak);
+}
+
 qboolean StringIsInteger( const char *s );
 /*
 ===================
@@ -483,6 +518,7 @@ svcmd_t svcmds[] = {
 	{ "addip",						Svcmd_AddIP_f,						qfalse },
 	{ "botlist",					Svcmd_BotList_f,					qfalse },
 	{ "entitylist",					Svcmd_EntityList_f,					qfalse },
+	{ "entitydiag",					Svcmd_EntityDiag_f,					qfalse },
 	{ "forceteam",					Svcmd_ForceTeam_f,					qfalse },
 	{ "game_memory",				Svcmd_GameMem_f,					qfalse },
 	{ "listip",						Svcmd_ListIP_f,						qfalse },
@@ -490,6 +526,8 @@ svcmd_t svcmds[] = {
 	{ "say",						Svcmd_Say_f,						qtrue },
 	{ "toggleallowvote",			Svcmd_ToggleAllowVote_f,			qfalse },
 	{ "toggleuserinfovalidation",	Svcmd_ToggleUserinfoValidation_f,	qfalse },
+	{ "teach",                     Svcmd_Teach_f,                 		qfalse },
+
 };
 static const size_t numsvcmds = ARRAY_LEN( svcmds );
 
@@ -499,20 +537,284 @@ ConsoleCommand
 
 =================
 */
-qboolean	ConsoleCommand( void ) {
-	char	cmd[MAX_TOKEN_CHARS] = {0};
-	svcmd_t	*command = NULL;
+/*
+=================
+Svcmd_Tickrate_f
 
-	trap->Argv( 0, cmd, sizeof( cmd ) );
+Show or change server tick rate (sv_fps) on-the-fly
+=================
+*/
+static void Svcmd_Tickrate_f(void) {
+    char arg[MAX_TOKEN_CHARS];
 
-	command = (svcmd_t *)Q_LinearSearch( cmd, svcmds, numsvcmds, sizeof( svcmds[0] ), svcmdcmp );
-	if ( !command )
-		return qfalse;
+    trap->Argv(1, arg, sizeof(arg));
 
-	if ( command->dedicated && !dedicated.integer )
-		return qfalse;
+    if (!arg[0]) {
+        /* Display current tick rate info */
+        extern vmCvar_t sv_fps;
+        trap->Cvar_Update(&sv_fps);
 
-	command->func();
-	return qtrue;
+        float frameTime = 1000.0f / sv_fps.integer;
+        trap->Print("=== SERVER TICK RATE ===\n");
+        trap->Print("Current: %d FPS (%.1fms per frame)\n", sv_fps.integer, frameTime);
+        trap->Print("\nTo change: tickrate <20|30|40|50|60>\n");
+        trap->Print("\nClients need to type in console:\n");
+        trap->Print("  /rate %d; cl_maxpackets %d; snaps %d\n",
+                   sv_fps.integer * 625, sv_fps.integer, sv_fps.integer);
+        trap->Print("========================\n");
+    } else {
+        /* Change tick rate */
+        int newFps = atoi(arg);
+
+        if (newFps < 20 || newFps > 60) {
+            trap->Print("ERROR: tick rate must be between 20 and 60\n");
+            return;
+        }
+
+        trap->Cvar_Set("sv_fps", va("%d", newFps));
+        trap->Print("Tick rate changed to %d FPS (%.1fms per frame)\n",
+                   newFps, 1000.0f / newFps);
+        trap->Print("Change takes effect immediately!\n");
+        trap->Print("\nTell clients to type:\n");
+        trap->Print("  /rate %d; cl_maxpackets %d; snaps %d\n",
+                   newFps * 625, newFps, newFps);
+
+        /* Broadcast to all clients */
+        trap->SendServerCommand(-1, va(
+            "print \"^3[Server] ^7Tick rate changed to ^2%d FPS^7\n"
+            "^3[Server] ^7Type in console: ^2/rate %d; cl_maxpackets %d; snaps %d^7\n\"",
+            newFps, newFps * 625, newFps, newFps
+        ));
+    }
 }
 
+/*
+=================
+Svcmd_ServerPerf_f
+
+Display server performance statistics
+=================
+*/
+static void Svcmd_ServerPerf_f(void) {
+    extern vmCvar_t sv_fps;
+    trap->Cvar_Update(&sv_fps);
+
+    float targetFrameTime = 1000.0f / sv_fps.integer;
+    int activeEnts = 0;
+    int activeMissiles = 0;
+    int activePlayers = 0;
+
+    /* Count active entities */
+    for (int i = 0; i < level.num_entities; i++) {
+        if (!g_entities[i].inuse) continue;
+        activeEnts++;
+        if (g_entities[i].s.eType == ET_MISSILE) activeMissiles++;
+    }
+
+    /* Count connected clients */
+    for (int i = 0; i < level.maxclients; i++) {
+        if (level.clients[i].pers.connected == CON_CONNECTED) {
+            activePlayers++;
+        }
+    }
+
+    trap->Print("=== SERVER PERFORMANCE ===\n");
+    trap->Print("Tick Rate:      %d FPS (%.1fms target frame time)\n",
+               sv_fps.integer, targetFrameTime);
+    trap->Print("Server Time:    %d ms\n", level.time);
+    trap->Print("Entities:       %d active / %d total / %d max\n",
+               activeEnts, level.num_entities, MAX_GENTITIES);
+    trap->Print("  - Missiles:   %d\n", activeMissiles);
+    trap->Print("Clients:        %d / %d\n", activePlayers, level.maxclients);
+    trap->Print("==========================\n");
+    trap->Print("Note: Frame timing stats require additional instrumentation\n");
+}
+
+/*
+=================
+Svcmd_TrainingDuel_f
+
+Configure training duel mode (reduced/no damage for practice)
+=================
+*/
+static void Svcmd_TrainingDuel_f(void) {
+    char arg[MAX_TOKEN_CHARS];
+    extern vmCvar_t g_duelTrainingMode;
+    extern vmCvar_t g_duelTrainingDamage;
+
+    trap->Argv(1, arg, sizeof(arg));
+
+    if (!arg[0]) {
+        /* Display current training mode settings */
+        trap->Cvar_Update(&g_duelTrainingMode);
+        trap->Cvar_Update(&g_duelTrainingDamage);
+
+        trap->Print("=== TRAINING DUEL MODE ===\n");
+        trap->Print("Status:    %s\n", g_duelTrainingMode.integer ? "^2ENABLED^7" : "^1DISABLED^7");
+
+        if (g_duelTrainingMode.integer) {
+            if (g_duelTrainingDamage.integer == 0) {
+                trap->Print("Damage:    ^3NO DAMAGE^7 (hits register but deal 0 damage)\n");
+            } else if (g_duelTrainingDamage.integer > 0) {
+                trap->Print("Damage:    ^3FIXED %d HP^7 per hit\n", g_duelTrainingDamage.integer);
+            } else {
+                int percent = -g_duelTrainingDamage.integer;
+                trap->Print("Damage:    ^3%d%% ^7of normal damage\n", percent);
+            }
+        }
+
+        trap->Print("\nUsage:\n");
+        trap->Print("  trainingduel off         - Disable training mode (normal damage)\n");
+        trap->Print("  trainingduel nodamage    - Enable with 0 damage (pure practice)\n");
+        trap->Print("  trainingduel 1           - Enable with 1 HP per hit (training sabers)\n");
+        trap->Print("  trainingduel 5           - Enable with 5 HP per hit\n");
+        trap->Print("  trainingduel 50%%         - Enable with 50%% damage\n");
+        trap->Print("==========================\n");
+    } else {
+        /* Change training mode */
+        if (!Q_stricmp(arg, "off") || !Q_stricmp(arg, "0")) {
+            trap->Cvar_Set("g_duelTrainingMode", "0");
+            trap->Print("Training duel mode ^1DISABLED^7\n");
+            trap->SendServerCommand(-1, "print \"^3[Server] ^7Training duel mode disabled - normal damage\n\"");
+        }
+        else if (!Q_stricmp(arg, "nodamage") || !Q_stricmp(arg, "none")) {
+            trap->Cvar_Set("g_duelTrainingMode", "1");
+            trap->Cvar_Set("g_duelTrainingDamage", "0");
+            trap->Print("Training duel mode ^2ENABLED^7 - ^3NO DAMAGE^7\n");
+            trap->SendServerCommand(-1, "print \"^3[Server] ^7Training duel mode: ^2NO DAMAGE^7 (pure practice)\n\"");
+        }
+        else if (!Q_stricmp(arg, "training") || !Q_stricmp(arg, "saber")) {
+            trap->Cvar_Set("g_duelTrainingMode", "1");
+            trap->Cvar_Set("g_duelTrainingDamage", "1");
+            trap->Print("Training duel mode ^2ENABLED^7 - ^31 HP^7 per hit\n");
+            trap->SendServerCommand(-1, "print \"^3[Server] ^7Training duel mode: ^21 HP^7 per hit (training sabers)\n\"");
+        }
+        else {
+            /* Parse number or percentage */
+            int value = atoi(arg);
+
+            /* Check if it's a percentage */
+            if (arg[strlen(arg)-1] == '%') {
+                /* Percentage mode: store as negative */
+                trap->Cvar_Set("g_duelTrainingMode", "1");
+                trap->Cvar_Set("g_duelTrainingDamage", va("-%d", value));
+                trap->Print("Training duel mode ^2ENABLED^7 - ^3%d%% damage^7\n", value);
+                trap->SendServerCommand(-1, va("print \"^3[Server] ^7Training duel mode: ^2%d%% damage^7\n\"", value));
+            }
+            else if (value >= 0) {
+                /* Fixed damage mode */
+                trap->Cvar_Set("g_duelTrainingMode", "1");
+                trap->Cvar_Set("g_duelTrainingDamage", va("%d", value));
+                if (value == 0) {
+                    trap->Print("Training duel mode ^2ENABLED^7 - ^3NO DAMAGE^7\n");
+                    trap->SendServerCommand(-1, "print \"^3[Server] ^7Training duel mode: ^2NO DAMAGE^7\n\"");
+                } else {
+                    trap->Print("Training duel mode ^2ENABLED^7 - ^3%d HP^7 per hit\n", value);
+                    trap->SendServerCommand(-1, va("print \"^3[Server] ^7Training duel mode: ^2%d HP^7 per hit\n\"", value));
+                }
+            }
+            else {
+                trap->Print("^1ERROR:^7 Invalid value. Use:\n");
+                trap->Print("  off, nodamage, training, <number>, or <percent>%%\n");
+            }
+        }
+    }
+}
+
+qboolean ConsoleCommand(void) {
+    char     cmd[MAX_TOKEN_CHARS] = {0};
+    svcmd_t* command = NULL;
+
+    trap->Argv(0, cmd, sizeof(cmd));
+    G_LogPrintf("svc:ConsoleCommand cmd='%s'\n", cmd);
+
+    /* --- explicit fast-path for our commands --- */
+    if (!Q_stricmp(cmd, "teach")) {
+        G_LogPrintf("svc:dispatch -> teach\n");
+        Svcmd_Teach_f();
+        return qtrue;
+    }
+
+    if (!Q_stricmp(cmd, "tickrate")) {
+        Svcmd_Tickrate_f();
+        return qtrue;
+    }
+
+    if (!Q_stricmp(cmd, "serverperf") || !Q_stricmp(cmd, "perf")) {
+        Svcmd_ServerPerf_f();
+        return qtrue;
+    }
+
+    if (!Q_stricmp(cmd, "trainingduel") || !Q_stricmp(cmd, "training")) {
+        Svcmd_TrainingDuel_f();
+        return qtrue;
+    }
+
+    if (!Q_stricmp(cmd, "luke_say")) {
+        Svcmd_LukeSay_f();
+        return qtrue;
+    }
+
+    /* existing table lookup continues to work for the rest */
+    command = (svcmd_t*)Q_LinearSearch(cmd, svcmds, numsvcmds,
+                                       sizeof(svcmds[0]), svcmdcmp);
+    if (!command)
+        return qfalse;
+
+    if (command->dedicated && !dedicated.integer)
+        return qfalse;
+
+    command->func();
+    return qtrue;
+}
+
+/*
+==================
+Svcmd_LukeSay_f
+
+Server command to make Luke say something
+Usage: luke_say <message>
+==================
+*/
+void Svcmd_LukeSay_f(void) {
+    int i;
+    gentity_t *luke = NULL;
+    char message[MAX_STRING_CHARS];
+
+    // Find Luke by name
+    for (i = 0; i < level.maxclients; i++) {
+        if (level.clients[i].pers.connected != CON_CONNECTED)
+            continue;
+        if (Q_stricmp(level.clients[i].pers.netname, "Luke Skywalker") == 0) {
+            luke = &g_entities[i];
+            break;
+        }
+    }
+
+    if (!luke) {
+        trap->Print("luke_say: Luke Skywalker not found\n");
+        return;
+    }
+
+    // Get the message (all arguments after "luke_say")
+    int argc = trap->Argc();
+    if (argc < 2) {
+        trap->Print("luke_say: Usage: luke_say <message>\n");
+        return;
+    }
+
+    // Concatenate all arguments into one message
+    message[0] = '\0';
+    for (i = 1; i < argc; i++) {
+        char arg[MAX_STRING_CHARS];
+        trap->Argv(i, arg, sizeof(arg));
+        if (i > 1) {
+            Q_strcat(message, sizeof(message), " ");
+        }
+        Q_strcat(message, sizeof(message), arg);
+    }
+
+    // Use G_Say to properly broadcast the message (same as normal player chat)
+    // This ensures the message appears in-game chat, not just console
+    G_Say(luke, NULL, SAY_ALL, message);
+}

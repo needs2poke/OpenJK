@@ -49,6 +49,7 @@ void G_WriteClientSessionData( gclient_t *client )
 				siegeClass[64] = {0}, IP[NET_ADDRSTRMAXLEN] = {0};
 	const char	*var;
 	int			i = 0;
+	int			teamToSave = client->sess.sessionTeam;
 
 	// for the strings, replace ' ' with 1
 
@@ -66,8 +67,16 @@ void G_WriteClientSessionData( gclient_t *client )
 			IP[i] = 1;
 	}
 
+	// LUKE BOT FIX: Always save Luke as TEAM_FREE, never as spectator
+	// This prevents saved session data from forcing Luke back to spectator on reconnect
+	if ( Q_stricmp( client->pers.netname, "Luke Skywalker" ) == 0 ) {
+		if ( teamToSave == TEAM_SPECTATOR ) {
+			teamToSave = TEAM_FREE;
+		}
+	}
+
 	// Make sure there is no space on the last entry
-	Q_strcat( s, sizeof( s ), va( "%i ", client->sess.sessionTeam ) );
+	Q_strcat( s, sizeof( s ), va( "%i ", teamToSave ) );
 	Q_strcat( s, sizeof( s ), va( "%i ", client->sess.spectatorNum ) );
 	Q_strcat( s, sizeof( s ), va( "%i ", client->sess.spectatorState ) );
 	Q_strcat( s, sizeof( s ), va( "%i ", client->sess.spectatorClient ) );
@@ -157,6 +166,21 @@ void G_InitSessionData( gclient_t *client, char *userinfo, qboolean isBot ) {
 	sess = &client->sess;
 
 	client->sess.siegeDesiredTeam = TEAM_FREE;
+
+	// LUKE BOT FIX: Check if this is Luke Skywalker and force him to join the game
+	value = Info_ValueForKey( userinfo, "name" );
+	if ( value && Q_stricmp( value, "Luke Skywalker" ) == 0 ) {
+		// Luke always joins as TEAM_FREE in FFA, or picks a team in team games
+		if ( level.gametype >= GT_TEAM ) {
+			sess->sessionTeam = PickTeam( -1 );  // Auto-balance Luke to a team
+			trap->Print( "G_InitSessionData: Luke Skywalker assigned to team %d\n", sess->sessionTeam );
+		} else {
+			sess->sessionTeam = TEAM_FREE;  // FFA/Duel modes
+			trap->Print( "G_InitSessionData: Luke Skywalker assigned to TEAM_FREE\n" );
+		}
+		client->ps.fd.forceDoInit = 1;
+		return;  // Skip normal team assignment logic
+	}
 
 	// initial team determination
 	if ( level.gametype >= GT_TEAM ) {

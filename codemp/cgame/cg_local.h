@@ -1896,6 +1896,7 @@ void	CG_ImpactMark( qhandle_t markShader,
 void	CG_InitLocalEntities( void );
 localEntity_t	*CG_AllocLocalEntity( void );
 void	CG_AddLocalEntities( void );
+void	CG_EntInfo_AddHighlights( void );
 
 //
 // cg_effects.c
@@ -1939,6 +1940,7 @@ void CG_LoadingString( const char *s );
 void CG_LoadingItem( int itemNum );
 void CG_LoadingClient( int clientNum );
 void CG_DrawInformation( void );
+void CG_EntInfo_DrawOverlay( void );
 
 //
 // cg_spawn.c

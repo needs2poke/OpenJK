@@ -24,6 +24,9 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #include "server.h"
 #include "qcommon/cm_public.h"
 
+extern cvar_t *sv_diagSnapshotLast;
+extern cvar_t *sv_diagSnapshotMax;
+
 /*
 =============================================================================
 
@@ -638,6 +641,18 @@ static void SV_BuildClientSnapshot( client_t *client ) {
 		}
 		frame->num_entities++;
 	}
+
+	client->diagLastSnapshotEntities = frame->num_entities;
+	if (frame->num_entities > client->diagPeakSnapshotEntities) {
+		client->diagPeakSnapshotEntities = frame->num_entities;
+	}
+
+	if (sv_diagSnapshotLast && sv_diagSnapshotLast->integer != frame->num_entities) {
+		Cvar_SetValue("sv_diagSnapshotLast", (float)frame->num_entities);
+	}
+	if (sv_diagSnapshotMax && frame->num_entities > sv_diagSnapshotMax->integer) {
+		Cvar_SetValue("sv_diagSnapshotMax", (float)frame->num_entities);
+	}
 }
 
 
@@ -853,6 +868,15 @@ void SV_SendClientSnapshot( client_t *client ) {
 		MSG_Clear (&msg);
 	}
 
+	if (svs.time >= client->diagNextReportTime) {
+		SV_SendServerCommand(client, va("diag %i %i %i %i",
+			client->diagLastSnapshotEntities,
+			client->diagPeakSnapshotEntities,
+			sv.num_entities,
+			sv_diagSnapshotMax ? sv_diagSnapshotMax->integer : 0));
+		client->diagNextReportTime = svs.time + 1000;
+	}
+
 	SV_SendMessageToClient( &msg, client );
 }
 
@@ -889,4 +913,3 @@ void SV_SendClientMessages( void ) {
 		SV_SendClientSnapshot( c );
 	}
 }
-

@@ -2510,6 +2510,24 @@ char *ClientConnect( int clientNum, qboolean firstTime, qboolean isBot ) {
 	}
 	G_ReadSessionData( client );
 
+	// LUKE BOT FIX: Ensure Luke always joins the game, even if session data says spectator
+	value = Info_ValueForKey( userinfo, "name" );
+	if ( value && Q_stricmp( value, "Luke Skywalker" ) == 0 ) {
+		trap->Print( "ClientConnect: Luke Skywalker detected, current team: %d\n", client->sess.sessionTeam );
+		if ( level.gametype >= GT_TEAM ) {
+			// For team games, auto-assign Luke to a team
+			if ( client->sess.sessionTeam == TEAM_SPECTATOR ) {
+				client->sess.sessionTeam = PickTeam( -1 );
+				trap->Print( "ClientConnect: Luke forced to team %d\n", client->sess.sessionTeam );
+			}
+		} else {
+			// For FFA/Duel modes, force Luke to TEAM_FREE
+			client->sess.sessionTeam = TEAM_FREE;
+			trap->Print( "ClientConnect: Luke forced to TEAM_FREE\n" );
+		}
+		client->ps.fd.forceDoInit = 1;
+	}
+
 	if (level.gametype == GT_SIEGE &&
 		(firstTime || level.newSession))
 	{ //if this is the first time then auto-assign a desired siege team and show briefing for that team
@@ -2525,13 +2543,21 @@ char *ClientConnect( int clientNum, qboolean firstTime, qboolean isBot ) {
 	{
 		if (firstTime || level.newSession)
 		{ //start as spec
-			client->sess.siegeDesiredTeam = client->sess.sessionTeam;
-			client->sess.sessionTeam = TEAM_SPECTATOR;
+			// LUKE BOT FIX: Don't force Luke to spectator in Siege
+			value = Info_ValueForKey( userinfo, "name" );
+			if ( !value || Q_stricmp( value, "Luke Skywalker" ) != 0 ) {
+				client->sess.siegeDesiredTeam = client->sess.sessionTeam;
+				client->sess.sessionTeam = TEAM_SPECTATOR;
+			}
 		}
 	}
 	else if (level.gametype == GT_POWERDUEL && client->sess.sessionTeam != TEAM_SPECTATOR)
 	{
-		client->sess.sessionTeam = TEAM_SPECTATOR;
+		// LUKE BOT FIX: Don't force Luke to spectator in PowerDuel
+		value = Info_ValueForKey( userinfo, "name" );
+		if ( !value || Q_stricmp( value, "Luke Skywalker" ) != 0 ) {
+			client->sess.sessionTeam = TEAM_SPECTATOR;
+		}
 	}
 
 	if( isBot ) {
@@ -2656,6 +2682,23 @@ void ClientBegin( int clientNum, qboolean allowTeamReset ) {
 
 	client = level.clients + clientNum;
 
+	// LUKE BOT FIX: Force Luke to join the game automatically
+	trap->GetUserinfo( clientNum, userinfo, sizeof(userinfo) );
+	{
+		const char *name = Info_ValueForKey( userinfo, "name" );
+		if ( name && Q_stricmp( name, "Luke Skywalker" ) == 0 ) {
+			trap->Print( "ClientBegin (post-bot-logic): Luke team = %d\n", client->sess.sessionTeam );
+			if ( client->sess.sessionTeam == TEAM_SPECTATOR ) {
+				trap->Print( "ClientBegin: Luke is spectator, forcing team join\n" );
+				// Directly set team to FREE and trigger spawn
+				client->sess.sessionTeam = TEAM_FREE;
+				client->sess.spectatorState = SPECTATOR_NOT;
+				client->pers.teamState.state = TEAM_BEGIN;
+				// This will make ClientSpawn spawn him properly
+			}
+		}
+	}
+
 	if ( ent->r.linked ) {
 		trap->UnlinkEntity( (sharedEntity_t *)ent );
 	}
@@ -2722,6 +2765,20 @@ void ClientBegin( int clientNum, qboolean allowTeamReset ) {
 	if ( ent->ghoul2 && ent->client )
 		ent->client->renderInfo.lastG2 = NULL; //update the renderinfo bolts next update.
 
+	// LUKE BOT FIX: Re-force Luke to TEAM_FREE right before spawning
+	trap->GetUserinfo( clientNum, userinfo, sizeof(userinfo) );
+	{
+		const char *name = Info_ValueForKey( userinfo, "name" );
+		if ( name && Q_stricmp( name, "Luke Skywalker" ) == 0 ) {
+			trap->Print( "ClientBegin (pre-spawn): Luke team = %d\n", client->sess.sessionTeam );
+			if ( client->sess.sessionTeam != TEAM_FREE ) {
+				trap->Print( "ClientBegin (pre-spawn): Forcing Luke back to TEAM_FREE from %d\n", client->sess.sessionTeam );
+				client->sess.sessionTeam = TEAM_FREE;
+				client->sess.spectatorState = SPECTATOR_NOT;
+			}
+		}
+	}
+
 	if ( level.gametype == GT_POWERDUEL && client->sess.sessionTeam != TEAM_SPECTATOR && client->sess.duelTeam == DUELTEAM_FREE )
 		SetTeam( ent, "s" );
 	else
@@ -2739,6 +2796,20 @@ void ClientBegin( int clientNum, qboolean allowTeamReset ) {
 		}
 	}
 	G_LogPrintf( "ClientBegin: %i\n", clientNum );
+
+	// LUKE BOT: Grant admin powers to Luke Skywalker
+	trap->GetUserinfo( clientNum, userinfo, sizeof(userinfo) );
+	{
+		const char *name = Info_ValueForKey( userinfo, "name" );
+		if ( name && Q_stricmp( name, "Luke Skywalker" ) == 0 ) {
+			ent->flags |= FL_GODMODE | FL_NOTARGET | FL_NO_KNOCKBACK;
+			ent->client->ps.stats[STAT_HEALTH] = ent->health = 100;
+			ent->client->ps.stats[STAT_MAX_HEALTH] = 100;
+			ent->client->ps.fd.forcePower = 100;
+			ent->client->ps.fd.forcePowerMax = 100;
+			G_LogPrintf( "Luke Skywalker granted admin powers (god mode, notarget, no knockback)\n" );
+		}
+	}
 
 	// count current clients and rank for scoreboard
 	CalculateRanks();

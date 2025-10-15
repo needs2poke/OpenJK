@@ -2668,6 +2668,8 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView, qboolean demo
 		CG_AddLocalEntities();
 	}
 
+	CG_EntInfo_AddHighlights();
+
 	cg.refdef.time = cg.time;
 	memcpy( cg.refdef.areamask, cg.snap->areamask, sizeof( cg.refdef.areamask ) );
 
@@ -2734,4 +2736,3 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView, qboolean demo
 		trap->Print( "cg.clientFrame:%i\n", cg.clientFrame );
 	}
 }
-

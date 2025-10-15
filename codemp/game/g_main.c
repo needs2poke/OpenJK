@@ -30,6 +30,8 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #include "b_local.h"
 #include "game/bg_public.h"
 #include "qcommon/game_version.h"
+#include "g_teach.h"  
+
 
 NORETURN_PTR void (*Com_Error)( int level, const char *error, ... );
 void (*Com_Printf)( const char *msg, ... );
@@ -68,6 +70,8 @@ qboolean G_EntIsDoor( int entityNum );
 qboolean G_EntIsBreakable( int entityNum );
 qboolean G_EntIsRemovableUsable( int entNum );
 void CP_FindCombatPointWaypoints( void );
+
+static void G_UpdateEntityDiagnostics( void );
 
 /*
 ================
@@ -215,6 +219,8 @@ void G_InitGame( int levelTime, int randomSeed, int restart ) {
 
 	// set some level globals
 	memset( &level, 0, sizeof( level ) );
+	trap->Cvar_Set("sv_diagSnapshotLast", "0");
+	trap->Cvar_Set("sv_diagSnapshotMax", "0");
 	level.time = levelTime;
 	level.startTime = levelTime;
 
@@ -2898,6 +2904,94 @@ int BG_GetTime(void)
 	return level.time;
 }
 
+static void G_UpdateEntityDiagnostics( void ) {
+	entityDiagnostics_t *diag = &level.entityDiagnostics;
+	entityCountDiag_t counts;
+	gentity_t *ent;
+	int i;
+
+	Com_Memset(&counts, 0, sizeof(counts));
+
+	for (i = 0; i < level.num_entities; i++) {
+		ent = &g_entities[i];
+
+		if (!ent->inuse) {
+			continue;
+		}
+
+		counts.total++;
+
+		switch (ent->s.eType) {
+		case ET_PLAYER:
+			counts.players++;
+			break;
+		case ET_NPC:
+			counts.npcs++;
+			break;
+		case ET_MISSILE:
+			counts.missiles++;
+			break;
+		case ET_MOVER:
+			counts.movers++;
+			break;
+		case ET_ITEM:
+			counts.items++;
+			break;
+		case ET_BODY:
+			counts.bodies++;
+			break;
+		case ET_FX:
+		case ET_SPECIAL:
+		case ET_BEAM:
+			counts.fx++;
+			break;
+		default:
+			if (ent->s.eType >= ET_EVENTS) {
+				counts.tempEntities++;
+			}
+			else {
+				counts.other++;
+			}
+			break;
+		}
+	}
+
+	diag->current = counts;
+
+#define UPDATE_PEAK(field) if (counts.field > diag->peak.field) { diag->peak.field = counts.field; }
+	UPDATE_PEAK(total);
+	UPDATE_PEAK(players);
+	UPDATE_PEAK(npcs);
+	UPDATE_PEAK(missiles);
+	UPDATE_PEAK(movers);
+	UPDATE_PEAK(items);
+	UPDATE_PEAK(bodies);
+	UPDATE_PEAK(fx);
+	UPDATE_PEAK(tempEntities);
+	UPDATE_PEAK(other);
+#undef UPDATE_PEAK
+
+	diag->snapshotCurrent = (int)trap->Cvar_VariableIntegerValue("sv_diagSnapshotLast");
+	diag->snapshotPeak = (int)trap->Cvar_VariableIntegerValue("sv_diagSnapshotMax");
+
+	if (level.numConnectedClients > 0 && level.time - diag->lastBroadcastTime >= 1000) {
+		trap->SendServerCommand(-1, va("gdiag %i %i %i %i %i %i %i %i %i %i %i %i",
+			counts.total,
+			counts.players,
+			counts.npcs,
+			counts.missiles,
+			counts.movers,
+			counts.items,
+			counts.bodies,
+			counts.fx,
+			counts.tempEntities,
+			counts.other,
+			diag->snapshotCurrent,
+			diag->snapshotPeak));
+		diag->lastBroadcastTime = level.time;
+	}
+}
+
 /*
 ================
 G_RunFrame
@@ -3406,6 +3500,8 @@ void G_RunFrame( int levelTime ) {
 	// for tracking changes
 	CheckCvars();
 
+	G_UpdateEntityDiagnostics();
+
 #ifdef _G_FRAME_PERFANAL
 	iTimer_GameChecks = trap->PrecisionTimer_End(timer_GameChecks);
 #endif
@@ -3417,6 +3513,8 @@ void G_RunFrame( int levelTime ) {
 #endif
 	//At the end of the frame, send out the ghoul2 kill queue, if there is one
 	G_SendG2KillQueue();
+	// TEACH: per-frame update (record/playback, timers, etc.)
+	Teach_RunFrame();
 
 	if (gQueueScoreMessage)
 	{

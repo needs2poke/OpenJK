@@ -983,6 +983,8 @@ void SV_Init (void) {
 	sv_fps = Cvar_Get ("sv_fps", "40", CVAR_SERVERINFO, "Server frames per second" );
 	sv_timeout = Cvar_Get ("sv_timeout", "200", CVAR_TEMP );
 	sv_zombietime = Cvar_Get ("sv_zombietime", "2", CVAR_TEMP );
+	sv_diagSnapshotLast = Cvar_Get("sv_diagSnapshotLast", "0", CVAR_ROM | CVAR_TEMP);
+	sv_diagSnapshotMax = Cvar_Get("sv_diagSnapshotMax", "0", CVAR_ROM | CVAR_TEMP);
 	Cvar_Get ("nextmap", "", CVAR_TEMP );
 
 	sv_allowDownload = Cvar_Get ("sv_allowDownload", "0", CVAR_SERVERINFO, "Allow clients to download mod files via UDP from the server");
