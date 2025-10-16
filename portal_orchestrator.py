@@ -73,7 +73,7 @@ def spawn_docker_backend(account_id, map_name="mp/ffa3"):
 
 def wait_for_port_ready(port, timeout=30):
     """
-    Wait for UDP port to be listening (check via ss command on remote server)
+    Wait for UDP port to be listening (check via ss command locally)
 
     Returns:
         bool: True if port is ready, False on timeout
@@ -83,20 +83,20 @@ def wait_for_port_ready(port, timeout=30):
 
     while time.time() - start < timeout:
         try:
-            # Check if port is listening on remote server
+            # Check if port is listening locally (no SSH needed)
             result = subprocess.run(
-                f'ssh ubuntu@158.69.218.235 "ss -lunp | grep \':{port}\'"',
-                shell=True,
+                ['ss', '-lunp'],
                 capture_output=True,
-                timeout=5
+                timeout=2,
+                text=True
             )
 
-            if result.returncode == 0:
+            if f':{port}' in result.stdout:
                 log(f"Backend port {port} is READY")
                 return True
 
         except subprocess.TimeoutExpired:
-            log(f"Warning: SSH timeout checking port {port}")
+            log(f"Warning: timeout checking port {port}")
         except Exception as e:
             log(f"Warning: Error checking port {port}: {e}")
 
