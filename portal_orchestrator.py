@@ -270,10 +270,10 @@ def tail_server_log():
     log("Waiting for portal touch events...")
     log("Press Ctrl+C to stop")
 
-    # Start tailing log via SSH
+    # Start tailing log (runs locally on server, no SSH needed)
     try:
         proc = subprocess.Popen(
-            ['ssh', 'ubuntu@158.69.218.235', f'tail -F {HUB_LOG}'],
+            ['tail', '-F', HUB_LOG],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             universal_newlines=True,
