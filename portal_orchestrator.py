@@ -17,7 +17,7 @@ from datetime import datetime
 # Configuration
 SHARD_API = "http://localhost:8001"
 PROXY_API = "http://localhost:8002"
-HUB_LOG = "/home/ubuntu/NewSharding/server/server.log"
+HUB_LOG = "/tmp/hub.log"
 
 # RCON configuration (for client IP:port discovery fallback)
 RCON_PASSWORD = None  # Will read from env or config

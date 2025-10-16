@@ -90,9 +90,8 @@ static void Portal_Touch(gentity_t *self, gentity_t *other, trace_t *trace) {
 
 	// LOG FOR ORCHESTRATOR (CRITICAL - exact format)
 	// Format: [PORTAL] client=IP:PORT accountID=X instanceID=Y port=Z
-	// Note: PORT is 0 because we can't get client port from game module
-	// Orchestrator will use fallback methods to discover port
-	trap->Print("^5[PORTAL] client=%s:0 accountID=%d instanceID=%d port=%d\n",
+	// clientIP from userinfo already contains "IP:PORT" format
+	trap->Print("^5[PORTAL] client=%s accountID=%d instanceID=%d port=%d\n",
 		clientIP, accountID, self->count, self->health);
 
 	// Send feedback to player
